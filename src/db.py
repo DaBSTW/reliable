@@ -207,6 +207,13 @@ class Database:
         rows = await cursor.fetchall()
         return [_row_to_poll_log(row) for row in rows]
 
+    async def last_successful_poll(self) -> PollLogEntry | None:
+        cursor = await self._connection.execute(
+            "SELECT * FROM poll_log WHERE success = 1 ORDER BY id DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return _row_to_poll_log(row) if row is not None else None
+
     # -- authorized_users ---------------------------------------------------------
 
     async def is_authorized(self, chat_id: int) -> bool:

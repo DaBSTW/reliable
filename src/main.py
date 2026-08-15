@@ -3,8 +3,11 @@
 import asyncio
 import logging
 import signal
+from datetime import datetime
 
 import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from telegram.ext import Application as TelegramApplication
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, ExtBot, JobQueue
 
@@ -12,6 +15,8 @@ from src.bot.auth import Auth
 from src.bot.handlers import Handlers
 from src.config import Config, load_config
 from src.db import Database
+from src.notifier import Notifier
+from src.poller import PollCycle
 from src.sources.base import InventorySource
 from src.sources.scraper_source import ScraperSource
 
@@ -28,6 +33,8 @@ Application = TelegramApplication[
     JobQueue[ContextTypes.DEFAULT_TYPE],
 ]
 
+POLL_JOB_ID = "inventory_poll"
+
 
 def _build_source(config: Config, client: httpx.AsyncClient) -> InventorySource:
     if config.inventory_source == "api":
@@ -36,7 +43,7 @@ def _build_source(config: Config, client: httpx.AsyncClient) -> InventorySource:
     return ScraperSource(client)
 
 
-def _build_application(config: Config, handlers: Handlers) -> Application:
+def _build_telegram_application(config: Config, handlers: Handlers) -> Application:
     application = ApplicationBuilder().token(config.telegram_bot_token).build()
     application.add_handler(CommandHandler("start", handlers.start))
     application.add_handler(CommandHandler("watch", handlers.watch))
@@ -46,6 +53,14 @@ def _build_application(config: Config, handlers: Handlers) -> Application:
     application.add_handler(CommandHandler("status", handlers.status))
     application.add_handler(CommandHandler("approve", handlers.approve))
     return application
+
+
+def _next_poll_in_seconds(scheduler: AsyncIOScheduler) -> int | None:
+    job = scheduler.get_job(POLL_JOB_ID)
+    if job is None or job.next_run_time is None:
+        return None
+    delta = job.next_run_time - datetime.now(job.next_run_time.tzinfo)
+    return max(int(delta.total_seconds()), 0)
 
 
 async def run() -> None:
@@ -62,11 +77,23 @@ async def run() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, shutdown.set)
 
+    scheduler = AsyncIOScheduler()
     try:
         async with httpx.AsyncClient() as client:
             source = _build_source(config, client)
-            handlers = Handlers(db, auth, source, next_poll_in_seconds=lambda: None)
-            application = _build_application(config, handlers)
+            handlers = Handlers(db, auth, source, lambda: _next_poll_in_seconds(scheduler))
+            application = _build_telegram_application(config, handlers)
+            notifier = Notifier(application.bot)
+            poll_cycle = PollCycle(
+                db, source, notifier, config.renotify_hours, config.admin_chat_id
+            )
+            scheduler.add_job(
+                poll_cycle.run,
+                IntervalTrigger(seconds=config.poll_interval_seconds),
+                id=POLL_JOB_ID,
+                next_run_time=datetime.now(),
+            )
+            scheduler.start()
 
             async with application:
                 await application.start()
@@ -77,6 +104,7 @@ async def run() -> None:
                 await application.updater.stop()
                 await application.stop()
     finally:
+        scheduler.shutdown(wait=False)
         await db.close()
 
 
