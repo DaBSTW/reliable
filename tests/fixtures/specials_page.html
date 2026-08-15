@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head><title>Dedicated Server Specials</title></head>
+<body>
+  <div class="specials-list">
+    <div class="server-card" data-product-id="2001">
+      <div class="server-cpu">Intel Xeon E3-1230v2</div>
+      <div class="server-ram">32GB DDR3</div>
+      <div class="server-storage">2x480GB SSD</div>
+      <div class="server-location">New York City, NY</div>
+      <div class="server-price">$69.00/mo</div>
+      <a href="/servers/2001">Order now</a>
+    </div>
+    <div class="server-card" data-product-id="2002">
+      <div class="server-cpu">Intel Xeon E5-2680v2</div>
+      <div class="server-ram">64GB DDR3</div>
+      <div class="server-storage">2x960GB NVMe</div>
+      <div class="server-location">Los Angeles, CA</div>
+      <div class="server-price">$119.00/mo</div>
+      <a href="/servers/2002">Order now</a>
+    </div>
+    <!-- missing price: must be skipped, not crash the whole page -->
+    <div class="server-card" data-product-id="2003">
+      <div class="server-cpu">AMD EPYC 7302P</div>
+      <div class="server-ram">128GB DDR4</div>
+      <div class="server-storage">2x1.92TB NVMe</div>
+      <div class="server-location">Miami, FL</div>
+    </div>
+    <!-- unparseable RAM: must be skipped, not crash the whole page -->
+    <div class="server-card" data-product-id="2004">
+      <div class="server-cpu">AMD Ryzen 9 5950X</div>
+      <div class="server-ram">plenty</div>
+      <div class="server-storage">2x2TB NVMe</div>
+      <div class="server-location">Amsterdam, NL</div>
+      <div class="server-price">$159.00/mo</div>
+      <a href="/servers/2004">Order now</a>
+    </div>
+  </div>
+</body>
+</html>
