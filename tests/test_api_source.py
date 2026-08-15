@@ -110,7 +110,9 @@ async def test_get_available_servers_returns_parsed_in_stock_and_out_of_stock_li
         Message="ok",
         ServerDetailsList=SimpleNamespace(Server_Details=_load_raw_servers()),
     )
-    monkeypatch.setattr("src.sources.api_source.Client", lambda _url: _FakeClient(result))
+    monkeypatch.setattr(
+        "src.sources.api_source.Client", lambda _url, **_kwargs: _FakeClient(result)
+    )
     source = ApiSource()
 
     listings = await source.get_available_servers()
@@ -122,7 +124,9 @@ async def test_get_available_servers_raises_when_api_reports_failure(monkeypatch
     result = SimpleNamespace(
         Result=False, Message="temporarily unavailable", ServerDetailsList=None
     )
-    monkeypatch.setattr("src.sources.api_source.Client", lambda _url: _FakeClient(result))
+    monkeypatch.setattr(
+        "src.sources.api_source.Client", lambda _url, **_kwargs: _FakeClient(result)
+    )
     source = ApiSource()
 
     with pytest.raises(InventoryUnavailableError):

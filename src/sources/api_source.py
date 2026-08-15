@@ -14,6 +14,7 @@ from typing import Any
 
 from zeep import Client
 from zeep.exceptions import Error as ZeepError
+from zeep.transports import Transport
 
 from src.errors import InventoryUnavailableError, ParseError
 from src.sources.base import InventorySource, ServerListing
@@ -21,6 +22,8 @@ from src.sources.base import InventorySource, ServerListing
 logger = logging.getLogger(__name__)
 
 DEFAULT_WSDL_URL = "http://api.reliablesite.net/inventory.svc?wsdl"
+WSDL_FETCH_TIMEOUT_SECONDS = 15
+OPERATION_TIMEOUT_SECONDS = 15
 
 RAM_PATTERN = re.compile(r"(\d+)\s*GB\s*(?:DDR\d[A-Z]*\s*)?(?:ECC\s*)?RAM", re.IGNORECASE)
 STORAGE_KEYWORDS = ("NVMe", "SSD", "HDD")
@@ -98,9 +101,13 @@ class ApiSource(InventorySource):
 
     async def _get_client(self) -> Client:
         if self._client is None:
+            # zeep ships no type stubs, hence the ignore.
+            transport = Transport(
+                timeout=WSDL_FETCH_TIMEOUT_SECONDS, operation_timeout=OPERATION_TIMEOUT_SECONDS
+            )  # type: ignore[no-untyped-call]
             try:
                 # zeep raises a mix of requests/lxml errors while fetching and parsing the WSDL.
-                self._client = await asyncio.to_thread(Client, self._wsdl_url)
+                self._client = await asyncio.to_thread(Client, self._wsdl_url, transport=transport)
             except Exception as exc:
                 raise InventoryUnavailableError(f"could not load WSDL: {exc}") from exc
         return self._client
