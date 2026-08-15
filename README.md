@@ -62,7 +62,7 @@ Bot ▸  🎯 ¡Disponible! (watch #4 — "E3 barato NYC")
 - VPS con **1 vCPU / 1 GB RAM** (Debian 12 o Ubuntu 22.04+)
 - **Python 3.11+**
 - Un **bot de Telegram** (gratis, vía [@BotFather](https://t.me/BotFather))
-- *Opcional:* credenciales de la Inventory API de ReliableSite (se piden a su soporte). Sin ellas el sistema funciona igualmente en modo scraping.
+- Nada más — la Inventory API de ReliableSite resultó ser pública, sin credenciales. `RELIABLESITE_API_USER`/`RELIABLESITE_API_KEY` quedan en `.env.example` por si eso cambia; hoy no se usan.
 
 ---
 
@@ -191,17 +191,18 @@ Scheduler (cada 10 min) ──▶ InventorySource ──▶ Matcher ──▶ No
 
 ```
 reliable/
-├── README.md · SPECS.md · ROADMAP.md
-├── requirements.txt · .env.example
-├── deploy/reliable-bot.service
+├── README.md · SPECS.md · ROADMAP.md · CODESTYLE.md
+├── requirements.txt · requirements-dev.txt · .env.example · pyproject.toml
+├── deploy/reliable-bot.service · reliable-bot.logrotate
 ├── src/
-│   ├── main.py            # arranca bot + scheduler
-│   ├── config.py · db.py
-│   ├── sources/           # base.py · api_source.py · scraper_source.py
+│   ├── main.py            # arranca bot + scheduler + poller
+│   ├── config.py · db.py · errors.py
+│   ├── sources/           # base.py · api_source.py · scraper_source.py · fallback_source.py
 │   ├── matcher.py         # ¿este servidor cumple lo que pediste?
+│   ├── poller.py          # ciclo: source -> matcher vs. watches -> notifier
 │   ├── notifier.py
-│   └── bot/               # handlers.py · auth.py
-└── tests/
+│   └── bot/               # handlers.py · auth.py · messages.py
+└── tests/                 # fixtures/ + tests unitarios e integración, sin red real
 ```
 
 ---
