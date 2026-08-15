@@ -1,0 +1,112 @@
+[
+  {
+    "product_id": "1001",
+    "description": "Intel Xeon E3-1230v2, 32GB DDR3, 2x480GB SSD",
+    "cpu": "Intel Xeon E3-1230v2",
+    "ram_gb": 32,
+    "storage": "2x480GB SSD",
+    "location": "NYC",
+    "price_usd": "69.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1001"
+  },
+  {
+    "product_id": "1002",
+    "description": "Intel Xeon E5-2680v2, 64GB DDR3, 2x960GB NVMe",
+    "cpu": "Intel Xeon E5-2680v2",
+    "ram_gb": 64,
+    "storage": "2x960GB NVMe",
+    "location": "LA",
+    "price_usd": "119.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1002"
+  },
+  {
+    "product_id": "1003",
+    "description": "Intel Xeon E3-1230v2, 16GB DDR3, 1x1TB HDD",
+    "cpu": "Intel Xeon E3-1230v2",
+    "ram_gb": 16,
+    "storage": "1x1TB HDD",
+    "location": "NYC",
+    "price_usd": "49.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1003"
+  },
+  {
+    "product_id": "1004",
+    "description": "AMD EPYC 7302P, 128GB DDR4, 2x1.92TB NVMe",
+    "cpu": "AMD EPYC 7302P",
+    "ram_gb": 128,
+    "storage": "2x1.92TB NVMe",
+    "location": "Miami",
+    "price_usd": "249.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1004"
+  },
+  {
+    "product_id": "1005",
+    "description": "Intel Xeon E5-2680v2, 32GB DDR3, 4x480GB SSD",
+    "cpu": "Intel Xeon E5-2680v2",
+    "ram_gb": 32,
+    "storage": "4x480GB SSD",
+    "location": "LA",
+    "price_usd": "99.00",
+    "in_stock": false,
+    "url": "https://www.reliablesite.net/servers/1005"
+  },
+  {
+    "product_id": "1006",
+    "description": "Intel Xeon E3-1230v6, 32GB DDR4, 2x512GB NVMe",
+    "cpu": "Intel Xeon E3-1230v6",
+    "ram_gb": 32,
+    "storage": "2x512GB NVMe",
+    "location": "NYC",
+    "price_usd": "89.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1006"
+  },
+  {
+    "product_id": "1007",
+    "description": "AMD Ryzen 9 5950X, 64GB DDR4, 2x2TB NVMe",
+    "cpu": "AMD Ryzen 9 5950X",
+    "ram_gb": 64,
+    "storage": "2x2TB NVMe",
+    "location": "Amsterdam",
+    "price_usd": "159.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1007"
+  },
+  {
+    "product_id": "1008",
+    "description": "Intel Xeon E5-2680v4, 256GB DDR4, 4x960GB SSD",
+    "cpu": "Intel Xeon E5-2680v4",
+    "ram_gb": 256,
+    "storage": "4x960GB SSD",
+    "location": "Miami",
+    "price_usd": "399.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1008"
+  },
+  {
+    "product_id": "1009",
+    "description": "Intel Xeon E3-1230v5, 32GB DDR4, 1x2TB HDD",
+    "cpu": "Intel Xeon E3-1230v5",
+    "ram_gb": 32,
+    "storage": "1x2TB HDD",
+    "location": "NYC",
+    "price_usd": "75.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1009"
+  },
+  {
+    "product_id": "1010",
+    "description": "AMD EPYC 7502P, 128GB DDR4, 2x3.84TB NVMe",
+    "cpu": "AMD EPYC 7502P",
+    "ram_gb": 128,
+    "storage": "2x3.84TB NVMe",
+    "location": "LA",
+    "price_usd": "329.00",
+    "in_stock": true,
+    "url": "https://www.reliablesite.net/servers/1010"
+  }
+]
