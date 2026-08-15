@@ -1,0 +1,7 @@
+python-telegram-bot==21.10
+zeep==4.3.1
+httpx==0.28.1
+selectolax==0.3.21
+APScheduler==3.10.4
+aiosqlite==0.20.0
+python-dotenv==1.0.1
