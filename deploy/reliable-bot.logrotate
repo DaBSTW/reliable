@@ -1,0 +1,9 @@
+/var/log/reliable-bot/app.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

@@ -4,6 +4,8 @@ import asyncio
 import logging
 import signal
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -37,6 +39,19 @@ Application = TelegramApplication[
 
 POLL_JOB_ID = "inventory_poll"
 
+# Safety net if logrotate isn't configured; logrotate (deploy/reliable-bot.logrotate) is
+# the primary rotation policy in production.
+LOG_FILE_MAX_BYTES = 10_000_000
+LOG_FILE_BACKUP_COUNT = 3
+
+
+def _configure_logging(config: Config) -> None:
+    Path(config.log_path).parent.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        config.log_path, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUP_COUNT
+    )
+    logging.basicConfig(level=config.log_level, handlers=[logging.StreamHandler(), file_handler])
+
 
 def _build_source(config: Config, client: httpx.AsyncClient) -> InventorySource:
     scraper = ScraperSource(client)
@@ -67,7 +82,7 @@ def _next_poll_in_seconds(scheduler: AsyncIOScheduler) -> int | None:
 
 async def run() -> None:
     config = load_config()
-    logging.basicConfig(level=config.log_level)
+    _configure_logging(config)
     logger.info("started", extra={"inventory_source": config.inventory_source})
 
     db = await Database.connect(config.db_path)
