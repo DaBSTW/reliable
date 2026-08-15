@@ -1,0 +1,34 @@
+[
+  {
+    "Product_Id": "425",
+    "Description": "Pre-Order - AMD Epyc 4545P 256GB (EU)",
+    "Detail": "AMD Epyc 4545P<br />\r\n256 GB DDR5 RAM<br />\r\n4 TB NVMe (PCIe 4.0)<br />\r\nFirst Available EU Data Center<br />\r\nUp to 2 Week Setup Time",
+    "Data_Center": "NL",
+    "Recurring_1_Month": "279.0000",
+    "Stock": 100
+  },
+  {
+    "Product_Id": "284",
+    "Description": "12 Core Server - AMD Ryzen 3900X (MIA)",
+    "Detail": "12 Core AMD Ryzen 3900X<br/>\r\n3.8 Ghz X 12 + HT<br/>\r\n128 GB DDR4 RAM<br/>\r\n2 TB NVMe (PCIe 4x)<br/>\r\nMiami, Florida Data Center",
+    "Data_Center": "MIA",
+    "Recurring_1_Month": "99.0000",
+    "Stock": 0
+  },
+  {
+    "Product_Id": "512",
+    "Description": "Legacy Server - Unlisted Specs",
+    "Detail": "Some CPU<br/>\r\nplenty of RAM<br/>\r\nLos Angeles, California Data Center",
+    "Data_Center": "LAX",
+    "Recurring_1_Month": "49.0000",
+    "Stock": 3
+  },
+  {
+    "Product_Id": "",
+    "Description": "Missing product id",
+    "Detail": "CPU<br/>\r\n32 GB DDR4 RAM<br/>\r\n1 TB SSD",
+    "Data_Center": "NYC",
+    "Recurring_1_Month": "59.0000",
+    "Stock": 5
+  }
+]

@@ -17,7 +17,9 @@ from src.config import Config, load_config
 from src.db import Database
 from src.notifier import Notifier
 from src.poller import PollCycle
+from src.sources.api_source import ApiSource
 from src.sources.base import InventorySource
+from src.sources.fallback_source import FallbackInventorySource
 from src.sources.scraper_source import ScraperSource
 
 logger = logging.getLogger(__name__)
@@ -37,10 +39,10 @@ POLL_JOB_ID = "inventory_poll"
 
 
 def _build_source(config: Config, client: httpx.AsyncClient) -> InventorySource:
-    if config.inventory_source == "api":
-        # Fase 5: api_source.py needs a verified WSDL/credentials before it can replace this.
-        logger.warning("api source not yet available, falling back to scraper")
-    return ScraperSource(client)
+    scraper = ScraperSource(client)
+    if config.inventory_source == "scraper":
+        return scraper
+    return FallbackInventorySource(ApiSource(), scraper)
 
 
 def _build_telegram_application(config: Config, handlers: Handlers) -> Application:

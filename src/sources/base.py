@@ -21,7 +21,10 @@ class ServerListing:
 class InventorySource(ABC):
     """A way to fetch current dedicated-server availability from ReliableSite."""
 
-    name: str
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Short identifier used in poll_log and logs (e.g. "api", "scraper")."""
 
     @abstractmethod
     async def get_available_servers(self) -> list[ServerListing]:
