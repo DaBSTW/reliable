@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from src.bot import messages
+from src.bot import access_requests, messages, watch_wizard
 from src.bot.auth import Auth
 from src.bot.watch_filters import parse_watch_filters
 from src.db import Database, Watch
@@ -17,6 +17,7 @@ from src.sources.base import InventorySource
 logger = logging.getLogger(__name__)
 
 # Internal callback_data protocol for inline buttons — never shown to the user.
+_CALLBACK_MENU_MAIN = "menu:main"
 _CALLBACK_MENU_LIST = "menu:list"
 _CALLBACK_MENU_STOCK = "menu:stock"
 _CALLBACK_MENU_STATUS = "menu:status"
@@ -32,15 +33,23 @@ class Handlers:
         auth: Auth,
         source: InventorySource,
         next_poll_in_seconds: Callable[[], int | None],
+        admin_chat_id: int,
     ) -> None:
         self._db = db
         self._auth = auth
         self._source = source
         self._next_poll_in_seconds = next_poll_in_seconds
         self._started_at = datetime.now(UTC)
+        self._wizard = watch_wizard.WizardController(
+            db, source, watch_wizard.WizardStore(), _main_menu_keyboard
+        )
+        self._access_requests = access_requests.AccessRequests(auth, admin_chat_id)
 
-    async def start(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not await self._require_authorized(update, _chat_id(update)):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = _chat_id(update)
+        if not await self._auth.is_authorized(chat_id):
+            await _reply(update, messages.ACCESS_REQUESTED)
+            await self._access_requests.notify_admin(update, context, chat_id)
             return
         await _reply(update, messages.WELCOME, _main_menu_keyboard())
 
@@ -101,16 +110,39 @@ class Handlers:
             return
         await _reply(update, await self._build_status_text(), _main_menu_keyboard())
 
-    async def on_callback_query(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = _chat_id(update)
+        if not await self._auth.is_admin(chat_id):
+            await _reply(update, messages.APPROVE_ONLY_ADMIN)
+            return
+        args = context.args or []
+        if len(args) != 1:
+            await _reply(update, messages.APPROVE_USAGE)
+            return
+        try:
+            target_chat_id = int(args[0])
+        except ValueError:
+            await _reply(update, messages.APPROVE_INVALID_CHAT_ID)
+            return
+        await self._auth.approve(target_chat_id, username=None)
+        await _reply(update, messages.APPROVE_SUCCESS.format(chat_id=target_chat_id))
+
+    async def on_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         assert query is not None
         await query.answer()
         chat_id = _chat_id(update)
+        data = query.data or ""
         if not await self._auth.is_authorized(chat_id):
             await query.edit_message_text(messages.NOT_AUTHORIZED)
             return
-        data = query.data or ""
-        if data == _CALLBACK_MENU_LIST or data.startswith(_CALLBACK_REMOVE_PREFIX):
+        if access_requests.is_approve_callback(data):
+            await self._access_requests.handle_callback(query, context, chat_id, data)
+        elif watch_wizard.is_wizard_callback(data):
+            await self._wizard.handle_callback(query, chat_id)
+        elif data == _CALLBACK_MENU_MAIN:
+            await query.edit_message_text(messages.WELCOME, reply_markup=_main_menu_keyboard())
+        elif data == _CALLBACK_MENU_LIST or data.startswith(_CALLBACK_REMOVE_PREFIX):
             if data.startswith(_CALLBACK_REMOVE_PREFIX):
                 await self._remove_via_button(data, chat_id)
             text, markup = await self._build_watch_list(chat_id)
@@ -125,6 +157,14 @@ class Handlers:
             )
         else:
             logger.warning("unknown callback_data", extra={"data": data})
+
+    async def on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = _chat_id(update)
+        if not await self._auth.is_authorized(chat_id):
+            return
+        if await self._wizard.handle_text(update, context):
+            return
+        await _reply(update, messages.TEXT_HINT, _main_menu_keyboard())
 
     async def _remove_via_button(self, data: str, chat_id: int) -> None:
         raw_id = data.removeprefix(_CALLBACK_REMOVE_PREFIX)
@@ -144,7 +184,7 @@ class Handlers:
             )
             for watch in watches
         )
-        return "\n".join(lines), _remove_buttons_keyboard(watches)
+        return "\n".join(lines), _watch_list_keyboard(watches)
 
     async def _build_stock_text(self) -> str:
         listings = await self._source.get_available_servers()
@@ -166,23 +206,6 @@ class Handlers:
         if next_in is not None:
             text += messages.STATUS_NEXT_POLL.format(minutes=max(next_in // 60, 0))
         return text
-
-    async def approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        chat_id = _chat_id(update)
-        if not await self._auth.is_admin(chat_id):
-            await _reply(update, messages.APPROVE_ONLY_ADMIN)
-            return
-        args = context.args or []
-        if len(args) != 1:
-            await _reply(update, messages.APPROVE_USAGE)
-            return
-        try:
-            target_chat_id = int(args[0])
-        except ValueError:
-            await _reply(update, messages.APPROVE_INVALID_CHAT_ID)
-            return
-        await self._auth.approve(target_chat_id, username=None)
-        await _reply(update, messages.APPROVE_SUCCESS.format(chat_id=target_chat_id))
 
     async def _require_authorized(self, update: Update, chat_id: int) -> bool:
         if await self._auth.is_authorized(chat_id):
@@ -219,6 +242,11 @@ async def _reply(
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
+            [
+                InlineKeyboardButton(
+                    messages.BUTTON_NEW_WATCH, callback_data=watch_wizard.CALLBACK_NEW
+                )
+            ],
             [InlineKeyboardButton(messages.BUTTON_LIST, callback_data=_CALLBACK_MENU_LIST)],
             [InlineKeyboardButton(messages.BUTTON_STOCK, callback_data=_CALLBACK_MENU_STOCK)],
             [InlineKeyboardButton(messages.BUTTON_STATUS, callback_data=_CALLBACK_MENU_STATUS)],
@@ -226,7 +254,7 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def _remove_buttons_keyboard(watches: list[Watch]) -> InlineKeyboardMarkup:
+def _watch_list_keyboard(watches: list[Watch]) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -236,6 +264,9 @@ def _remove_buttons_keyboard(watches: list[Watch]) -> InlineKeyboardMarkup:
         ]
         for watch in watches
     ]
+    rows.append(
+        [InlineKeyboardButton(messages.BUTTON_MAIN_MENU, callback_data=_CALLBACK_MENU_MAIN)]
+    )
     return InlineKeyboardMarkup(rows)
 
 

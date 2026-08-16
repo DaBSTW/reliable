@@ -16,8 +16,14 @@ class FakeChat:
         self.id = chat_id
 
 
+class FakeUser:
+    def __init__(self, username: str | None) -> None:
+        self.username = username
+
+
 class FakeMessage:
-    def __init__(self) -> None:
+    def __init__(self, message_id: int = 1) -> None:
+        self.message_id = message_id
         self.replies: list[str] = []
         self.reply_markups: list[object] = []
 
@@ -27,8 +33,9 @@ class FakeMessage:
 
 
 class FakeCallbackQuery:
-    def __init__(self, data: str) -> None:
+    def __init__(self, data: str, message: FakeMessage) -> None:
         self.data = data
+        self.message = message
         self.answered = False
         self.edits: list[str] = []
         self.edit_markups: list[object] = []
@@ -42,17 +49,44 @@ class FakeCallbackQuery:
 
 
 class FakeUpdate:
-    def __init__(self, chat_id: int, callback_data: str | None = None) -> None:
+    def __init__(
+        self,
+        chat_id: int,
+        callback_data: str | None = None,
+        text: str | None = None,
+        username: str | None = None,
+    ) -> None:
         self.effective_chat = FakeChat(chat_id)
+        self.effective_user = FakeUser(username)
         self.message = FakeMessage()
+        self.message.text = text
         self.callback_query = (
-            FakeCallbackQuery(callback_data) if callback_data is not None else None
+            FakeCallbackQuery(callback_data, self.message) if callback_data is not None else None
         )
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.sent_messages: list[tuple[int, str]] = []
+        self.sent_markups: list[object] = []
+        self.edited_messages: list[tuple[int, int, str]] = []
+        self.edited_markups: list[object] = []
+
+    async def send_message(self, chat_id: int, text: str, reply_markup: object = None) -> None:
+        self.sent_messages.append((chat_id, text))
+        self.sent_markups.append(reply_markup)
+
+    async def edit_message_text(
+        self, text: str, chat_id: int, message_id: int, reply_markup: object = None
+    ) -> None:
+        self.edited_messages.append((chat_id, message_id, text))
+        self.edited_markups.append(reply_markup)
 
 
 class FakeContext:
     def __init__(self, args: list[str] | None = None) -> None:
         self.args = args
+        self.bot = FakeBot()
 
 
 class FakeSource:
@@ -79,11 +113,19 @@ LISTING = ServerListing(
 @pytest.fixture
 async def wired(tmp_path):
     db = await Database.connect(str(tmp_path / "watches.db"))
-    auth = Auth(db)
-    await auth.approve(111, username="tester")
-    handlers = Handlers(db, auth, FakeSource([LISTING]), next_poll_in_seconds=lambda: 120)
-    yield handlers
-    await db.close()
+    try:
+        auth = Auth(db)
+        await auth.approve(111, username="tester")
+        handlers = Handlers(
+            db,
+            auth,
+            FakeSource([LISTING]),
+            next_poll_in_seconds=lambda: 120,
+            admin_chat_id=999999,
+        )
+        yield handlers
+    finally:
+        await db.close()
 
 
 async def test_start_replies_welcome_for_authorized_user(wired):
@@ -99,7 +141,19 @@ async def test_start_rejects_unauthorized_user(wired):
 
     await wired.start(update, FakeContext())
 
-    assert update.message.replies == [messages.NOT_AUTHORIZED]
+    assert update.message.replies == [messages.ACCESS_REQUESTED]
+
+
+async def test_start_notifies_the_admin_with_an_approve_button(wired):
+    update = FakeUpdate(999, username="newbie")
+    context = FakeContext()
+
+    await wired.start(update, context)
+
+    admin_chat_id, text = context.bot.sent_messages[0]
+    assert admin_chat_id == 999999
+    assert "999" in text
+    assert "@newbie" in text
 
 
 async def test_watch_creates_a_watch_and_confirms_it(wired):
@@ -191,15 +245,19 @@ async def test_approve_rejects_non_admin(wired):
 
 async def test_approve_authorizes_target_chat_id_for_admin():
     db = await Database.connect(":memory:")
-    auth = Auth(db)
-    await auth.bootstrap_admin(111)
-    handlers = Handlers(db, auth, FakeSource([]), next_poll_in_seconds=lambda: None)
-    update = FakeUpdate(111)
+    try:
+        auth = Auth(db)
+        await auth.bootstrap_admin(111)
+        handlers = Handlers(
+            db, auth, FakeSource([]), next_poll_in_seconds=lambda: None, admin_chat_id=111
+        )
+        update = FakeUpdate(111)
 
-    await handlers.approve(update, FakeContext(["333"]))
+        await handlers.approve(update, FakeContext(["333"]))
 
-    assert await auth.is_authorized(333) is True
-    await db.close()
+        assert await auth.is_authorized(333) is True
+    finally:
+        await db.close()
 
 
 async def test_start_shows_a_main_menu_keyboard(wired):
@@ -261,3 +319,135 @@ async def test_callback_rejects_unauthorized_user(wired):
     await wired.on_callback_query(update, FakeContext())
 
     assert update.callback_query.edits == [messages.NOT_AUTHORIZED]
+
+
+async def test_approve_callback_authorizes_and_notifies_the_new_user():
+    db = await Database.connect(":memory:")
+    try:
+        auth = Auth(db)
+        await auth.bootstrap_admin(111)
+        handlers = Handlers(
+            db, auth, FakeSource([]), next_poll_in_seconds=lambda: None, admin_chat_id=111
+        )
+        update = FakeUpdate(111, callback_data="approve:333")
+        context = FakeContext()
+
+        await handlers.on_callback_query(update, context)
+
+        assert await auth.is_authorized(333) is True
+        assert update.callback_query.edits[0] == messages.APPROVE_DONE_FOR_ADMIN.format(chat_id=333)
+        assert context.bot.sent_messages == [(333, messages.APPROVE_NOTIFY_USER)]
+    finally:
+        await db.close()
+
+
+async def test_approve_callback_rejects_non_admin(wired):
+    update = FakeUpdate(111, callback_data="approve:333")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits == [messages.APPROVE_ONLY_ADMIN]
+
+
+async def test_wizard_new_shows_the_filter_menu(wired):
+    update = FakeUpdate(111, callback_data="wiz:new")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "sin filtros" in update.callback_query.edits[0]
+
+
+async def test_wizard_pick_ram_shows_presets(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:pick:ram")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    buttons = [b.text for row in update.callback_query.edit_markups[0].inline_keyboard for b in row]
+    assert "32" in buttons
+
+
+async def test_wizard_picking_a_ram_preset_updates_the_summary(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:val:ram:32")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "RAM: ≥32GB" in update.callback_query.edits[-1]
+
+
+async def test_wizard_back_returns_to_the_filter_menu(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:pick:ram"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:back")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "sin filtros" in update.callback_query.edits[-1]
+
+
+async def test_wizard_cancel_clears_state_and_shows_main_menu(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:cancel")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits[-1] == messages.WIZARD_CANCELLED
+
+
+async def test_wizard_callback_without_active_state_reports_expired(wired):
+    update = FakeUpdate(111, callback_data="wiz:val:ram:32")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits == [messages.WIZARD_EXPIRED]
+
+
+async def test_wizard_cpu_pick_goes_straight_to_a_text_prompt(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:pick:cpu")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits[-1] == messages.WIZARD_ASK_CPU_TEXT
+
+
+async def test_wizard_text_reply_fills_in_the_cpu_filter(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:pick:cpu"), FakeContext())
+    update = FakeUpdate(111, text="E3-1230")
+    context = FakeContext()
+
+    await wired.on_text_message(update, context)
+
+    assert context.bot.edited_messages[0][2].find("CPU: E3-1230") != -1
+
+
+async def test_text_message_without_an_active_wizard_shows_a_hint(wired):
+    update = FakeUpdate(111, text="hello")
+
+    await wired.on_text_message(update, FakeContext())
+
+    assert update.message.replies == [messages.TEXT_HINT]
+
+
+async def test_wizard_remove_button_clears_a_filter(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:val:ram:32"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:rm:ram")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "sin filtros" in update.callback_query.edits[-1]
+
+
+async def test_wizard_create_persists_the_watch_and_clears_state(wired):
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:val:ram:64"), FakeContext())
+    update = FakeUpdate(111, callback_data="wiz:create")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    watches = await wired._db.list_watches_for_chat(111)
+    assert watches[0].ram_min_gb == 64
+    assert "Watch #" in update.callback_query.edits[-1]

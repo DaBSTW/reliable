@@ -122,7 +122,37 @@ LOG_LEVEL=INFO
 
 ---
 
-## Comandos del bot
+## Todo por botones
+
+El bot se usa entero a golpe de botón — no hace falta escribir ningún comando ni sintaxis:
+
+```
+Tú  ▸  /start
+
+Bot ▸  👋 Bienvenido a ReliableWatch...
+       ┌─────────────────────┐
+       │ ➕ Nuevo watch        │
+       │ 📋 Mis watches        │
+       │ 📦 Stock disponible   │
+       │ 📊 Estado del sistema │
+       └─────────────────────┘
+```
+
+**➕ Nuevo watch** abre un asistente paso a paso: elegís qué filtros fijar (CPU, RAM,
+almacenamiento, ubicación, precio, nombre) tocando botones — RAM y precio tienen valores
+comunes ya armados, la ubicación se arma con los datacenters que hay en stock ahora mismo, y
+solo pide escribir algo cuando el valor es realmente libre (el modelo de CPU, el nombre). En
+**cada pantalla** hay ⬅️ **Atrás** y ❌ **Cancelar** — nunca quedás sin salida. **📋 Mis
+watches** pone un 🗑️ por cada watch para borrarlo con un toque, y un botón para volver al
+menú principal.
+
+Cuando alguien no autorizado toca `/start`, el bot le avisa al admin con un botón
+**✅ Autorizar** — tampoco hace falta que el admin escriba `/approve <chat_id>` a mano.
+
+### Comandos de texto (opcionales)
+
+Si preferís escribir, todo también funciona por comando — quedan además en el menú "/" nativo
+de Telegram, con descripción:
 
 | Comando | Qué hace |
 |---|---|
@@ -134,12 +164,7 @@ LOG_LEVEL=INFO
 | `/status` | Salud del sistema: último poll, próximo poll, watches activos |
 | `/approve <chat_id>` | *(solo admin)* autoriza a otro usuario |
 
-Los comandos aparecen también en el menú "/" nativo de Telegram (con descripción), y
-`/start`, `/watch`, `/stock` y `/status` responden con **botones inline**: navegación rápida
-a "Mis watches" / "Stock" / "Estado" sin volver a escribir el comando, y un botón
-🗑️ por cada watch en `/list` para borrarlo con un toque en vez de teclear `/remove <id>`.
-
-### Sintaxis de `/watch`
+#### Sintaxis de `/watch`
 
 Formato `clave=valor`, separados por espacios. **Todos los filtros son opcionales** — lo que omitas, no filtra.
 
@@ -207,6 +232,7 @@ reliable/
 │   ├── poller.py          # ciclo: source -> matcher vs. watches -> notifier
 │   ├── notifier.py
 │   └── bot/               # handlers.py · auth.py · messages.py · watch_filters.py
+│                           # watch_wizard.py · access_requests.py
 └── tests/                 # fixtures/ + tests unitarios e integración, sin red real
 ```
 

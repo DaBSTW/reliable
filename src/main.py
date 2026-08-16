@@ -19,6 +19,8 @@ from telegram.ext import (
     ContextTypes,
     ExtBot,
     JobQueue,
+    MessageHandler,
+    filters,
 )
 
 from src.bot import messages
@@ -79,6 +81,9 @@ def _build_telegram_application(config: Config, handlers: Handlers) -> Applicati
     application.add_handler(CommandHandler("status", handlers.status))
     application.add_handler(CommandHandler("approve", handlers.approve))
     application.add_handler(CallbackQueryHandler(handlers.on_callback_query))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_text_message)
+    )
     return application
 
 
@@ -108,7 +113,9 @@ async def run() -> None:
     try:
         async with httpx.AsyncClient() as client:
             source = _build_source(config, client)
-            handlers = Handlers(db, auth, source, lambda: _next_poll_in_seconds(scheduler))
+            handlers = Handlers(
+                db, auth, source, lambda: _next_poll_in_seconds(scheduler), config.admin_chat_id
+            )
             application = _build_telegram_application(config, handlers)
             notifier = Notifier(application.bot)
             poll_cycle = PollCycle(

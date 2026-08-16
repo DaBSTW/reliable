@@ -6,8 +6,8 @@ from src.sources.base import ServerListing
 WELCOME = (
     "👋 Bienvenido a ReliableWatch.\n\n"
     "Te aviso por Telegram en cuanto aparezca un servidor dedicado que cumpla lo que buscas "
-    "en ReliableSite.\n\n"
-    "Comandos:\n"
+    "en ReliableSite. Usá los botones de abajo — no hace falta escribir nada.\n\n"
+    "Comandos de texto, si los preferís:\n"
     "/watch <filtros> — crea una búsqueda (ej. cpu=E3-1230 ram=32 loc=NYC precio=80)\n"
     "/list — tus watches activos\n"
     "/remove <id> — elimina un watch\n"
@@ -16,6 +16,7 @@ WELCOME = (
 )
 
 NOT_AUTHORIZED = "⛔ No estás autorizado. Pide acceso al administrador."
+ACCESS_REQUESTED = "⛔ No estás autorizado. Le avisé al administrador; te aviso cuando te apruebe."
 
 WATCH_CREATED = "✅ Watch #{watch_id} creado\n{summary}"
 WATCH_PARSE_ERROR = (
@@ -47,11 +48,23 @@ APPROVE_USAGE = "Uso: /approve <chat_id>"
 APPROVE_ONLY_ADMIN = "⛔ Solo el administrador puede aprobar usuarios."
 APPROVE_INVALID_CHAT_ID = "El chat_id debe ser un número entero."
 APPROVE_SUCCESS = "✅ Usuario {chat_id} autorizado."
+APPROVE_REQUEST_FOR_ADMIN = "🔔 Nuevo usuario pidiendo acceso: {chat_id}{username}"
+APPROVE_DONE_FOR_ADMIN = "✅ Autorizado {chat_id}."
+APPROVE_NOTIFY_USER = "✅ ¡Ya te aprobaron! Tocá /start para empezar."
 
 BUTTON_LIST = "📋 Mis watches"
 BUTTON_STOCK = "📦 Stock disponible"
 BUTTON_STATUS = "📊 Estado del sistema"
 BUTTON_REMOVE = "🗑️ Eliminar #{watch_id}"
+BUTTON_NEW_WATCH = "➕ Nuevo watch"  # noqa: RUF001 -- emoji, not the plus operator
+BUTTON_MAIN_MENU = "🏠 Menú principal"
+BUTTON_BACK = "⬅️ Atrás"
+BUTTON_CANCEL = "❌ Cancelar"
+BUTTON_CREATE_WATCH = "✅ Crear watch"
+BUTTON_ANY_VALUE = "· Cualquiera ·"
+BUTTON_CUSTOM_VALUE = "✏️ Escribir un valor"
+BUTTON_REMOVE_FILTER = "🗑️ Quitar {label}"
+BUTTON_APPROVE = "✅ Autorizar"
 
 # (command, description) shown in Telegram's "/" command menu.
 COMMAND_DESCRIPTIONS = [
@@ -62,6 +75,27 @@ COMMAND_DESCRIPTIONS = [
     ("stock", "Inventario disponible ahora"),
     ("status", "Salud del sistema"),
 ]
+
+WIZARD_INTRO = "🛠️ Armemos tu watch. Elegí qué filtros fijar (los que dejes afuera no filtran):"
+WIZARD_SUMMARY = "📝 Watch en progreso:\n{summary}\n\nElegí qué más ajustar, o creá el watch."
+WIZARD_FILTER_CPU = "🖥️ CPU"
+WIZARD_FILTER_RAM = "💾 RAM mínima"
+WIZARD_FILTER_STORAGE = "💽 Almacenamiento"
+WIZARD_FILTER_LOCATION = "📍 Ubicación"
+WIZARD_FILTER_PRICE = "💵 Precio máximo"
+WIZARD_FILTER_LABEL = "🏷️ Nombre"
+WIZARD_ASK_RAM = "💾 Elegí la RAM mínima:"
+WIZARD_ASK_STORAGE = "💽 Elegí el tipo de almacenamiento:"
+WIZARD_ASK_PRICE = "💵 Elegí el precio máximo:"
+WIZARD_ASK_LOCATION = "📍 Elegí la ubicación:"
+WIZARD_ASK_LOCATION_UNAVAILABLE = "📍 No pude traer las ubicaciones disponibles. Escribila a mano:"
+WIZARD_ASK_CPU_TEXT = "🖥️ Escribí el modelo de CPU (o parte del nombre), ej. E3-1230:"
+WIZARD_ASK_LABEL_TEXT = "🏷️ Escribí un nombre para identificar este watch:"
+WIZARD_CANCELLED = "❌ Watch cancelado."
+WIZARD_INVALID_VALUE = "⚠️ {error}\n\nProbá de nuevo:"
+WIZARD_EXPIRED = "⌛ Esa sesión de watch ya no está activa. Empezá de nuevo."
+
+TEXT_HINT = "Usá los botones 👇"
 
 MATCH_FOUND_HEADER = "🎯 ¡Disponible! (watch #{watch_id}{label})"
 MATCH_FOUND_ITEM = "{cpu}\n{storage}\n📍 {location}\n💵 ${price_usd}/mes\n🔗 {url}"
@@ -90,6 +124,23 @@ def format_watch_summary(watch: Watch) -> str:
         parts.append(f"Precio: ≤${watch.price_max_usd}")
     summary = " · ".join(parts) if parts else "sin filtros (cualquier servidor)"
     return f'"{watch.label}" — {summary}' if watch.label else summary
+
+
+def format_wizard_filters(filters: dict[str, str]) -> str:
+    """Render the /watch key=value filters accumulated so far in the wizard."""
+    parts = []
+    if filters.get("cpu"):
+        parts.append(f"CPU: {filters['cpu']}")
+    if filters.get("ram"):
+        parts.append(f"RAM: ≥{filters['ram']}GB")
+    if filters.get("disco"):
+        parts.append(f"Almacenamiento: {filters['disco']}")
+    if filters.get("loc"):
+        parts.append(f"Ubicación: {filters['loc']}")
+    if filters.get("precio"):
+        parts.append(f"Precio: ≤${filters['precio']}")
+    summary = " · ".join(parts) if parts else "sin filtros (cualquier servidor)"
+    return f'"{filters["nombre"]}" — {summary}' if filters.get("nombre") else summary
 
 
 def format_stock_item(listing: ServerListing) -> str:
