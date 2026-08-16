@@ -6,7 +6,7 @@ import pytest
 
 from src.bot import messages
 from src.bot.auth import Auth
-from src.bot.handlers import Handlers, WatchFilterError, parse_watch_filters
+from src.bot.handlers import Handlers
 from src.db import Database
 from src.sources.base import ServerListing
 
@@ -19,15 +19,35 @@ class FakeChat:
 class FakeMessage:
     def __init__(self) -> None:
         self.replies: list[str] = []
+        self.reply_markups: list[object] = []
 
-    async def reply_text(self, text: str) -> None:
+    async def reply_text(self, text: str, reply_markup: object = None) -> None:
         self.replies.append(text)
+        self.reply_markups.append(reply_markup)
+
+
+class FakeCallbackQuery:
+    def __init__(self, data: str) -> None:
+        self.data = data
+        self.answered = False
+        self.edits: list[str] = []
+        self.edit_markups: list[object] = []
+
+    async def answer(self) -> None:
+        self.answered = True
+
+    async def edit_message_text(self, text: str, reply_markup: object = None) -> None:
+        self.edits.append(text)
+        self.edit_markups.append(reply_markup)
 
 
 class FakeUpdate:
-    def __init__(self, chat_id: int) -> None:
+    def __init__(self, chat_id: int, callback_data: str | None = None) -> None:
         self.effective_chat = FakeChat(chat_id)
         self.message = FakeMessage()
+        self.callback_query = (
+            FakeCallbackQuery(callback_data) if callback_data is not None else None
+        )
 
 
 class FakeContext:
@@ -182,32 +202,62 @@ async def test_approve_authorizes_target_chat_id_for_admin():
     await db.close()
 
 
-def test_parse_watch_filters_accepts_all_known_keys():
-    filters_ = parse_watch_filters(
-        ["cpu=E5-2680", "ram=64", "disco=NVMe", "loc=LA", "precio=120", "nombre=proyecto-x"]
-    )
+async def test_start_shows_a_main_menu_keyboard(wired):
+    update = FakeUpdate(111)
 
-    assert filters_.cpu_pattern == "E5-2680"
-    assert filters_.ram_min_gb == 64
-    assert filters_.price_max_usd == Decimal("120")
+    await wired.start(update, FakeContext())
+
+    assert update.message.reply_markups[0] is not None
 
 
-def test_parse_watch_filters_rejects_unknown_key():
-    with pytest.raises(WatchFilterError):
-        parse_watch_filters(["potato=yes"])
+async def test_list_watches_attaches_a_remove_button_per_watch(wired):
+    await wired.watch(FakeUpdate(111), FakeContext(["loc=NYC"]))
+    update = FakeUpdate(111)
+
+    await wired.list_watches(update, FakeContext())
+
+    markup = update.message.reply_markups[0]
+    assert markup.inline_keyboard[0][0].callback_data == "remove:1"
 
 
-def test_parse_watch_filters_rejects_non_integer_ram():
-    with pytest.raises(WatchFilterError):
-        parse_watch_filters(["ram=lots"])
+async def test_callback_menu_list_edits_message_with_watch_list(wired):
+    await wired.watch(FakeUpdate(111), FakeContext(["loc=NYC"]))
+    update = FakeUpdate(111, callback_data="menu:list")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.answered is True
+    assert "#1" in update.callback_query.edits[0]
 
 
-def test_parse_watch_filters_rejects_non_numeric_price():
-    with pytest.raises(WatchFilterError):
-        parse_watch_filters(["precio=cheap"])
+async def test_callback_menu_stock_edits_message_with_stock(wired):
+    update = FakeUpdate(111, callback_data="menu:stock")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "Intel Xeon E3-1230v2" in update.callback_query.edits[0]
 
 
-def test_parse_watch_filters_with_no_args_matches_anything():
-    filters_ = parse_watch_filters([])
+async def test_callback_menu_status_edits_message_with_status(wired):
+    update = FakeUpdate(111, callback_data="menu:status")
 
-    assert filters_ == parse_watch_filters([])
+    await wired.on_callback_query(update, FakeContext())
+
+    assert "Estado del sistema" in update.callback_query.edits[0]
+
+
+async def test_callback_remove_deactivates_the_watch_and_refreshes_the_list(wired):
+    await wired.watch(FakeUpdate(111), FakeContext(["loc=NYC"]))
+    update = FakeUpdate(111, callback_data="remove:1")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits[0] == messages.WATCH_LIST_EMPTY
+
+
+async def test_callback_rejects_unauthorized_user(wired):
+    update = FakeUpdate(999, callback_data="menu:list")
+
+    await wired.on_callback_query(update, FakeContext())
+
+    assert update.callback_query.edits == [messages.NOT_AUTHORIZED]

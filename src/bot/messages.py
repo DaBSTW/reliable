@@ -48,6 +48,21 @@ APPROVE_ONLY_ADMIN = "⛔ Solo el administrador puede aprobar usuarios."
 APPROVE_INVALID_CHAT_ID = "El chat_id debe ser un número entero."
 APPROVE_SUCCESS = "✅ Usuario {chat_id} autorizado."
 
+BUTTON_LIST = "📋 Mis watches"
+BUTTON_STOCK = "📦 Stock disponible"
+BUTTON_STATUS = "📊 Estado del sistema"
+BUTTON_REMOVE = "🗑️ Eliminar #{watch_id}"
+
+# (command, description) shown in Telegram's "/" command menu.
+COMMAND_DESCRIPTIONS = [
+    ("start", "Alta y ayuda"),
+    ("watch", "Crea una búsqueda nueva"),
+    ("list", "Tus watches activos"),
+    ("remove", "Elimina un watch"),
+    ("stock", "Inventario disponible ahora"),
+    ("status", "Salud del sistema"),
+]
+
 MATCH_FOUND_HEADER = "🎯 ¡Disponible! (watch #{watch_id}{label})"
 MATCH_FOUND_ITEM = "{cpu}\n{storage}\n📍 {location}\n💵 ${price_usd}/mes\n🔗 {url}"
 

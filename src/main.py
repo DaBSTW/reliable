@@ -10,9 +10,18 @@ from pathlib import Path
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from telegram import BotCommand
 from telegram.ext import Application as TelegramApplication
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, ExtBot, JobQueue
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    ExtBot,
+    JobQueue,
+)
 
+from src.bot import messages
 from src.bot.auth import Auth
 from src.bot.handlers import Handlers
 from src.config import Config, load_config
@@ -69,6 +78,7 @@ def _build_telegram_application(config: Config, handlers: Handlers) -> Applicati
     application.add_handler(CommandHandler("stock", handlers.stock))
     application.add_handler(CommandHandler("status", handlers.status))
     application.add_handler(CommandHandler("approve", handlers.approve))
+    application.add_handler(CallbackQueryHandler(handlers.on_callback_query))
     return application
 
 
@@ -114,6 +124,12 @@ async def run() -> None:
 
             async with application:
                 await application.start()
+                await application.bot.set_my_commands(
+                    [
+                        BotCommand(command, description)
+                        for command, description in messages.COMMAND_DESCRIPTIONS
+                    ]
+                )
                 assert application.updater is not None
                 await application.updater.start_polling()
                 await shutdown.wait()

@@ -2,84 +2,25 @@
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from src.bot import messages
 from src.bot.auth import Auth
-from src.db import Database
+from src.bot.watch_filters import parse_watch_filters
+from src.db import Database, Watch
 from src.errors import WatchFilterError
 from src.sources.base import InventorySource
 
 logger = logging.getLogger(__name__)
 
-# Mirrors the /watch syntax documented in README.md and SPECS.md §8.
-_WATCH_FILTER_KEYS = {"cpu", "ram", "disco", "loc", "precio", "nombre"}
-
-
-@dataclass(frozen=True)
-class WatchFilters:
-    label: str | None = None
-    cpu_pattern: str | None = None
-    ram_min_gb: int | None = None
-    storage_pattern: str | None = None
-    location: str | None = None
-    price_max_usd: Decimal | None = None
-
-
-def parse_watch_filters(args: list[str]) -> WatchFilters:
-    """Parse `key=value` tokens into typed watch filters."""
-    raw = _tokenize(args)
-    ram_raw = raw.get("ram")
-    price_raw = raw.get("precio")
-    return WatchFilters(
-        label=raw.get("nombre"),
-        cpu_pattern=raw.get("cpu"),
-        ram_min_gb=_positive_int(ram_raw, "ram") if ram_raw is not None else None,
-        storage_pattern=raw.get("disco"),
-        location=raw.get("loc"),
-        price_max_usd=_positive_decimal(price_raw, "precio") if price_raw is not None else None,
-    )
-
-
-def _tokenize(args: list[str]) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for token in args:
-        if "=" not in token:
-            raise WatchFilterError(f"invalid token {token!r}, expected key=value")
-        raw_key, raw_value = token.split("=", 1)
-        key = raw_key.strip().casefold()
-        value = raw_value.strip()
-        if key not in _WATCH_FILTER_KEYS:
-            raise WatchFilterError(f"unknown filter {raw_key!r}")
-        if not value:
-            raise WatchFilterError(f"empty value for filter {raw_key!r}")
-        result[key] = value
-    return result
-
-
-def _positive_int(raw: str, key: str) -> int:
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise WatchFilterError(f"{key} must be an integer, got {raw!r}") from exc
-    if value <= 0:
-        raise WatchFilterError(f"{key} must be positive, got {raw!r}")
-    return value
-
-
-def _positive_decimal(raw: str, key: str) -> Decimal:
-    try:
-        value = Decimal(raw)
-    except InvalidOperation as exc:
-        raise WatchFilterError(f"{key} must be a number, got {raw!r}") from exc
-    if value <= 0:
-        raise WatchFilterError(f"{key} must be positive, got {raw!r}")
-    return value
+# Internal callback_data protocol for inline buttons — never shown to the user.
+_CALLBACK_MENU_LIST = "menu:list"
+_CALLBACK_MENU_STOCK = "menu:stock"
+_CALLBACK_MENU_STATUS = "menu:status"
+_CALLBACK_REMOVE_PREFIX = "remove:"
 
 
 class Handlers:
@@ -101,7 +42,7 @@ class Handlers:
     async def start(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._require_authorized(update, _chat_id(update)):
             return
-        await _reply(update, messages.WELCOME)
+        await _reply(update, messages.WELCOME, _main_menu_keyboard())
 
     async def watch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -122,24 +63,18 @@ class Handlers:
             price_max_usd=filters_.price_max_usd,
         )
         summary = messages.format_watch_summary(watch)
-        await _reply(update, messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary))
+        await _reply(
+            update,
+            messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary),
+            _main_menu_keyboard(),
+        )
 
     async def list_watches(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
         if not await self._require_authorized(update, chat_id):
             return
-        watches = await self._db.list_watches_for_chat(chat_id)
-        if not watches:
-            await _reply(update, messages.WATCH_LIST_EMPTY)
-            return
-        lines = [messages.WATCH_LIST_HEADER]
-        lines.extend(
-            messages.WATCH_LIST_ITEM.format(
-                watch_id=watch.id, summary=messages.format_watch_summary(watch)
-            )
-            for watch in watches
-        )
-        await _reply(update, "\n".join(lines))
+        text, markup = await self._build_watch_list(chat_id)
+        await _reply(update, text, markup)
 
     async def remove(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -159,18 +94,68 @@ class Handlers:
     async def stock(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._require_authorized(update, _chat_id(update)):
             return
-        listings = await self._source.get_available_servers()
-        in_stock = [listing for listing in listings if listing.in_stock]
-        if not in_stock:
-            await _reply(update, messages.STOCK_EMPTY)
-            return
-        lines = [messages.STOCK_HEADER]
-        lines.extend(messages.format_stock_item(listing) for listing in in_stock)
-        await _reply(update, "\n\n".join(lines))
+        await _reply(update, await self._build_stock_text(), _main_menu_keyboard())
 
     async def status(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._require_authorized(update, _chat_id(update)):
             return
+        await _reply(update, await self._build_status_text(), _main_menu_keyboard())
+
+    async def on_callback_query(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        assert query is not None
+        await query.answer()
+        chat_id = _chat_id(update)
+        if not await self._auth.is_authorized(chat_id):
+            await query.edit_message_text(messages.NOT_AUTHORIZED)
+            return
+        data = query.data or ""
+        if data == _CALLBACK_MENU_LIST or data.startswith(_CALLBACK_REMOVE_PREFIX):
+            if data.startswith(_CALLBACK_REMOVE_PREFIX):
+                await self._remove_via_button(data, chat_id)
+            text, markup = await self._build_watch_list(chat_id)
+            await query.edit_message_text(text, reply_markup=markup)
+        elif data == _CALLBACK_MENU_STOCK:
+            await query.edit_message_text(
+                await self._build_stock_text(), reply_markup=_main_menu_keyboard()
+            )
+        elif data == _CALLBACK_MENU_STATUS:
+            await query.edit_message_text(
+                await self._build_status_text(), reply_markup=_main_menu_keyboard()
+            )
+        else:
+            logger.warning("unknown callback_data", extra={"data": data})
+
+    async def _remove_via_button(self, data: str, chat_id: int) -> None:
+        raw_id = data.removeprefix(_CALLBACK_REMOVE_PREFIX)
+        if not raw_id.isdigit():
+            logger.warning("malformed remove callback_data", extra={"data": data})
+            return
+        await self._db.deactivate_watch(int(raw_id), chat_id)
+
+    async def _build_watch_list(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+        watches = await self._db.list_watches_for_chat(chat_id)
+        if not watches:
+            return messages.WATCH_LIST_EMPTY, _main_menu_keyboard()
+        lines = [messages.WATCH_LIST_HEADER]
+        lines.extend(
+            messages.WATCH_LIST_ITEM.format(
+                watch_id=watch.id, summary=messages.format_watch_summary(watch)
+            )
+            for watch in watches
+        )
+        return "\n".join(lines), _remove_buttons_keyboard(watches)
+
+    async def _build_stock_text(self) -> str:
+        listings = await self._source.get_available_servers()
+        in_stock = [listing for listing in listings if listing.in_stock]
+        if not in_stock:
+            return messages.STOCK_EMPTY
+        lines = [messages.STOCK_HEADER]
+        lines.extend(messages.format_stock_item(listing) for listing in in_stock)
+        return "\n\n".join(lines)
+
+    async def _build_status_text(self) -> str:
         poll_line = await self._format_poll_line()
         active_watches = len(await self._db.list_active_watches())
         uptime = _format_timedelta(datetime.now(UTC) - self._started_at)
@@ -180,7 +165,7 @@ class Handlers:
         next_in = self._next_poll_in_seconds()
         if next_in is not None:
             text += messages.STATUS_NEXT_POLL.format(minutes=max(next_in // 60, 0))
-        await _reply(update, text)
+        return text
 
     async def approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -224,9 +209,34 @@ def _chat_id(update: Update) -> int:
     return update.effective_chat.id
 
 
-async def _reply(update: Update, text: str) -> None:
+async def _reply(
+    update: Update, text: str, reply_markup: InlineKeyboardMarkup | None = None
+) -> None:
     assert update.message is not None
-    await update.message.reply_text(text)
+    await update.message.reply_text(text, reply_markup=reply_markup)
+
+
+def _main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(messages.BUTTON_LIST, callback_data=_CALLBACK_MENU_LIST)],
+            [InlineKeyboardButton(messages.BUTTON_STOCK, callback_data=_CALLBACK_MENU_STOCK)],
+            [InlineKeyboardButton(messages.BUTTON_STATUS, callback_data=_CALLBACK_MENU_STATUS)],
+        ]
+    )
+
+
+def _remove_buttons_keyboard(watches: list[Watch]) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                messages.BUTTON_REMOVE.format(watch_id=watch.id),
+                callback_data=f"{_CALLBACK_REMOVE_PREFIX}{watch.id}",
+            )
+        ]
+        for watch in watches
+    ]
+    return InlineKeyboardMarkup(rows)
 
 
 def _parse_timestamp(raw: str) -> datetime:

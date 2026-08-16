@@ -134,6 +134,11 @@ LOG_LEVEL=INFO
 | `/status` | Salud del sistema: último poll, próximo poll, watches activos |
 | `/approve <chat_id>` | *(solo admin)* autoriza a otro usuario |
 
+Los comandos aparecen también en el menú "/" nativo de Telegram (con descripción), y
+`/start`, `/watch`, `/stock` y `/status` responden con **botones inline**: navegación rápida
+a "Mis watches" / "Stock" / "Estado" sin volver a escribir el comando, y un botón
+🗑️ por cada watch en `/list` para borrarlo con un toque en vez de teclear `/remove <id>`.
+
 ### Sintaxis de `/watch`
 
 Formato `clave=valor`, separados por espacios. **Todos los filtros son opcionales** — lo que omitas, no filtra.
@@ -201,7 +206,7 @@ reliable/
 │   ├── matcher.py         # ¿este servidor cumple lo que pediste?
 │   ├── poller.py          # ciclo: source -> matcher vs. watches -> notifier
 │   ├── notifier.py
-│   └── bot/               # handlers.py · auth.py · messages.py
+│   └── bot/               # handlers.py · auth.py · messages.py · watch_filters.py
 └── tests/                 # fixtures/ + tests unitarios e integración, sin red real
 ```
 
