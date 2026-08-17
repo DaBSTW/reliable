@@ -124,18 +124,20 @@ LOG_LEVEL=INFO
 
 ## Todo por botones
 
-El bot se usa entero a golpe de botón — no hace falta escribir ningún comando ni sintaxis:
+El bot se usa entero a golpe de botón — no hace falta escribir ningún comando ni sintaxis. Al
+hacer `/start` te queda un **teclado fijo abajo**, en el lugar del teclado del teléfono, que no
+se va hasta que lo cambiés vos:
 
 ```
 Tú  ▸  /start
 
 Bot ▸  👋 Bienvenido a ReliableWatch...
-       ┌─────────────────────┐
-       │ ➕ Nuevo watch        │
-       │ 📋 Mis watches        │
-       │ 📦 Stock disponible   │
-       │ 📊 Estado del sistema │
-       └─────────────────────┘
+
+       ┌──────────────┬──────────────┐
+       │ ➕ Nuevo watch │ 📋 Mis watches │   ← este teclado queda fijo
+       ├──────────────┼──────────────┤     abajo, siempre a mano
+       │ 📦 Stock       │ 📊 Estado     │
+       └──────────────┴──────────────┘
 ```
 
 **➕ Nuevo watch** abre un asistente paso a paso: elegís qué filtros fijar (CPU, RAM,
@@ -143,8 +145,7 @@ almacenamiento, ubicación, precio, nombre) tocando botones — RAM y precio tie
 comunes ya armados, la ubicación se arma con los datacenters que hay en stock ahora mismo, y
 solo pide escribir algo cuando el valor es realmente libre (el modelo de CPU, el nombre). En
 **cada pantalla** hay ⬅️ **Atrás** y ❌ **Cancelar** — nunca quedás sin salida. **📋 Mis
-watches** pone un 🗑️ por cada watch para borrarlo con un toque, y un botón para volver al
-menú principal.
+watches** pone un 🗑️ por cada watch para borrarlo con un toque.
 
 Cuando alguien no autorizado toca `/start`, el bot le avisa al admin con un botón
 **✅ Autorizar** — tampoco hace falta que el admin escriba `/approve <chat_id>` a mano.

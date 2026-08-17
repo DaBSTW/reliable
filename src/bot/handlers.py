@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from src.bot import access_requests, messages, watch_wizard
@@ -16,11 +16,6 @@ from src.sources.base import InventorySource
 
 logger = logging.getLogger(__name__)
 
-# Internal callback_data protocol for inline buttons — never shown to the user.
-_CALLBACK_MENU_MAIN = "menu:main"
-_CALLBACK_MENU_LIST = "menu:list"
-_CALLBACK_MENU_STOCK = "menu:stock"
-_CALLBACK_MENU_STATUS = "menu:status"
 _CALLBACK_REMOVE_PREFIX = "remove:"
 
 
@@ -40,9 +35,7 @@ class Handlers:
         self._source = source
         self._next_poll_in_seconds = next_poll_in_seconds
         self._started_at = datetime.now(UTC)
-        self._wizard = watch_wizard.WizardController(
-            db, source, watch_wizard.WizardStore(), _main_menu_keyboard
-        )
+        self._wizard = watch_wizard.WizardController(db, source, watch_wizard.WizardStore())
         self._access_requests = access_requests.AccessRequests(auth, admin_chat_id)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -51,7 +44,7 @@ class Handlers:
             await _reply(update, messages.ACCESS_REQUESTED)
             await self._access_requests.notify_admin(update, context, chat_id)
             return
-        await _reply(update, messages.WELCOME, _main_menu_keyboard())
+        await _reply(update, messages.WELCOME, _persistent_keyboard())
 
     async def watch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -72,11 +65,7 @@ class Handlers:
             price_max_usd=filters_.price_max_usd,
         )
         summary = messages.format_watch_summary(watch)
-        await _reply(
-            update,
-            messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary),
-            _main_menu_keyboard(),
-        )
+        await _reply(update, messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary))
 
     async def list_watches(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -103,12 +92,12 @@ class Handlers:
     async def stock(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._require_authorized(update, _chat_id(update)):
             return
-        await _reply(update, await self._build_stock_text(), _main_menu_keyboard())
+        await _reply(update, await self._build_stock_text())
 
     async def status(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._require_authorized(update, _chat_id(update)):
             return
-        await _reply(update, await self._build_status_text(), _main_menu_keyboard())
+        await _reply(update, await self._build_status_text())
 
     async def approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = _chat_id(update)
@@ -140,21 +129,10 @@ class Handlers:
             await self._access_requests.handle_callback(query, context, chat_id, data)
         elif watch_wizard.is_wizard_callback(data):
             await self._wizard.handle_callback(query, chat_id)
-        elif data == _CALLBACK_MENU_MAIN:
-            await query.edit_message_text(messages.WELCOME, reply_markup=_main_menu_keyboard())
-        elif data == _CALLBACK_MENU_LIST or data.startswith(_CALLBACK_REMOVE_PREFIX):
-            if data.startswith(_CALLBACK_REMOVE_PREFIX):
-                await self._remove_via_button(data, chat_id)
+        elif data.startswith(_CALLBACK_REMOVE_PREFIX):
+            await self._remove_via_button(data, chat_id)
             text, markup = await self._build_watch_list(chat_id)
             await query.edit_message_text(text, reply_markup=markup)
-        elif data == _CALLBACK_MENU_STOCK:
-            await query.edit_message_text(
-                await self._build_stock_text(), reply_markup=_main_menu_keyboard()
-            )
-        elif data == _CALLBACK_MENU_STATUS:
-            await query.edit_message_text(
-                await self._build_status_text(), reply_markup=_main_menu_keyboard()
-            )
         else:
             logger.warning("unknown callback_data", extra={"data": data})
 
@@ -162,9 +140,18 @@ class Handlers:
         chat_id = _chat_id(update)
         if not await self._auth.is_authorized(chat_id):
             return
-        if await self._wizard.handle_text(update, context):
-            return
-        await _reply(update, messages.TEXT_HINT, _main_menu_keyboard())
+        text = update.message.text if update.message else None
+        if text == messages.BUTTON_NEW_WATCH:
+            await self._wizard.start_from_message(update, context)
+        elif text == messages.BUTTON_LIST:
+            list_text, markup = await self._build_watch_list(chat_id)
+            await _reply(update, list_text, markup)
+        elif text == messages.BUTTON_STOCK:
+            await _reply(update, await self._build_stock_text())
+        elif text == messages.BUTTON_STATUS:
+            await _reply(update, await self._build_status_text())
+        elif not await self._wizard.handle_text(update, context):
+            await _reply(update, messages.TEXT_HINT)
 
     async def _remove_via_button(self, data: str, chat_id: int) -> None:
         raw_id = data.removeprefix(_CALLBACK_REMOVE_PREFIX)
@@ -176,7 +163,7 @@ class Handlers:
     async def _build_watch_list(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
         watches = await self._db.list_watches_for_chat(chat_id)
         if not watches:
-            return messages.WATCH_LIST_EMPTY, _main_menu_keyboard()
+            return messages.WATCH_LIST_EMPTY, None
         lines = [messages.WATCH_LIST_HEADER]
         lines.extend(
             messages.WATCH_LIST_ITEM.format(
@@ -233,24 +220,23 @@ def _chat_id(update: Update) -> int:
 
 
 async def _reply(
-    update: Update, text: str, reply_markup: InlineKeyboardMarkup | None = None
+    update: Update,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None,
 ) -> None:
     assert update.message is not None
     await update.message.reply_text(text, reply_markup=reply_markup)
 
 
-def _main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def _persistent_keyboard() -> ReplyKeyboardMarkup:
+    """The bottom keyboard, replacing the device's own — set once and it stays put."""
+    return ReplyKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton(
-                    messages.BUTTON_NEW_WATCH, callback_data=watch_wizard.CALLBACK_NEW
-                )
-            ],
-            [InlineKeyboardButton(messages.BUTTON_LIST, callback_data=_CALLBACK_MENU_LIST)],
-            [InlineKeyboardButton(messages.BUTTON_STOCK, callback_data=_CALLBACK_MENU_STOCK)],
-            [InlineKeyboardButton(messages.BUTTON_STATUS, callback_data=_CALLBACK_MENU_STATUS)],
-        ]
+            [messages.BUTTON_NEW_WATCH, messages.BUTTON_LIST],
+            [messages.BUTTON_STOCK, messages.BUTTON_STATUS],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -264,9 +250,6 @@ def _watch_list_keyboard(watches: list[Watch]) -> InlineKeyboardMarkup:
         ]
         for watch in watches
     ]
-    rows.append(
-        [InlineKeyboardButton(messages.BUTTON_MAIN_MENU, callback_data=_CALLBACK_MENU_MAIN)]
-    )
     return InlineKeyboardMarkup(rows)
 
 

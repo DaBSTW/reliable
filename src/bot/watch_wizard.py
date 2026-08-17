@@ -1,7 +1,6 @@
 """Button-driven state machine for building a /watch step by step, with no typing required."""
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -32,7 +31,6 @@ FILTER_LABELS = {
 }
 TEXT_ENTRY_KEYS = ("cpu", "nombre")
 
-CALLBACK_NEW = "wiz:new"
 CALLBACK_CREATE = "wiz:create"
 CALLBACK_CANCEL = "wiz:cancel"
 CALLBACK_BACK = "wiz:back"
@@ -72,10 +70,8 @@ class WizardStore:
 
 
 def is_wizard_callback(data: str) -> bool:
-    return (
-        data == CALLBACK_NEW
-        or data in (CALLBACK_CREATE, CALLBACK_CANCEL, CALLBACK_BACK)
-        or data.startswith(_DATA_PREFIXES)
+    return data in (CALLBACK_CREATE, CALLBACK_CANCEL, CALLBACK_BACK) or data.startswith(
+        _DATA_PREFIXES
     )
 
 
@@ -142,39 +138,31 @@ def _back_and_cancel_row() -> list[InlineKeyboardButton]:
 class WizardController:
     """Owns the button-driven watch-creation flow: prompts, presets, and finalization."""
 
-    def __init__(
-        self,
-        db: Database,
-        source: InventorySource,
-        store: WizardStore,
-        main_menu_keyboard: Callable[[], InlineKeyboardMarkup],
-    ) -> None:
+    def __init__(self, db: Database, source: InventorySource, store: WizardStore) -> None:
         self._db = db
         self._source = source
         self._store = store
-        self._main_menu_keyboard = main_menu_keyboard
+
+    async def start_from_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Start a new wizard as a fresh message (triggered from the persistent keyboard)."""
+        assert update.effective_chat is not None and update.message is not None
+        chat_id = update.effective_chat.id
+        text, markup = _menu_content(WizardState(chat_id=chat_id, message_id=0))
+        sent = await update.message.reply_text(text, reply_markup=markup)
+        self._store.start(chat_id, sent.message_id)
 
     async def handle_callback(self, query: CallbackQuery, chat_id: int) -> None:
         data = query.data or ""
-        if data == CALLBACK_NEW:
-            assert query.message is not None
-            new_state = self._store.start(chat_id, query.message.message_id)
-            await self._render_menu(query, new_state)
-            return
-        state: WizardState | None = self._store.get(chat_id)
+        state = self._store.get(chat_id)
         if state is None:
-            await query.edit_message_text(
-                messages.WIZARD_EXPIRED, reply_markup=self._main_menu_keyboard()
-            )
+            await query.edit_message_text(messages.WIZARD_EXPIRED)
             return
         await self._route(query, state, data)
 
     async def _route(self, query: CallbackQuery, state: WizardState, data: str) -> None:
         if data == CALLBACK_CANCEL:
             self._store.clear(state.chat_id)
-            await query.edit_message_text(
-                messages.WIZARD_CANCELLED, reply_markup=self._main_menu_keyboard()
-            )
+            await query.edit_message_text(messages.WIZARD_CANCELLED)
         elif data == CALLBACK_BACK:
             await self._render_menu(query, state)
         elif data == CALLBACK_CREATE:
@@ -292,6 +280,5 @@ class WizardController:
         self._store.clear(state.chat_id)
         summary = messages.format_watch_summary(watch)
         await query.edit_message_text(
-            messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary),
-            reply_markup=self._main_menu_keyboard(),
+            messages.WATCH_CREATED.format(watch_id=watch.id, summary=summary)
         )

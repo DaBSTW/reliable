@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import pytest
+from telegram import ReplyKeyboardMarkup
 
 from src.bot import messages
 from src.bot.auth import Auth
@@ -24,12 +25,14 @@ class FakeUser:
 class FakeMessage:
     def __init__(self, message_id: int = 1) -> None:
         self.message_id = message_id
+        self.text: str | None = None
         self.replies: list[str] = []
         self.reply_markups: list[object] = []
 
-    async def reply_text(self, text: str, reply_markup: object = None) -> None:
+    async def reply_text(self, text: str, reply_markup: object = None) -> "FakeMessage":
         self.replies.append(text)
         self.reply_markups.append(reply_markup)
+        return FakeMessage(message_id=self.message_id + 1)
 
 
 class FakeCallbackQuery:
@@ -260,12 +263,13 @@ async def test_approve_authorizes_target_chat_id_for_admin():
         await db.close()
 
 
-async def test_start_shows_a_main_menu_keyboard(wired):
+async def test_start_shows_the_persistent_keyboard(wired):
     update = FakeUpdate(111)
 
     await wired.start(update, FakeContext())
 
-    assert update.message.reply_markups[0] is not None
+    markup = update.message.reply_markups[0]
+    assert isinstance(markup, ReplyKeyboardMarkup)
 
 
 async def test_list_watches_attaches_a_remove_button_per_watch(wired):
@@ -278,30 +282,37 @@ async def test_list_watches_attaches_a_remove_button_per_watch(wired):
     assert markup.inline_keyboard[0][0].callback_data == "remove:1"
 
 
-async def test_callback_menu_list_edits_message_with_watch_list(wired):
+async def test_text_button_list_replies_with_the_watch_list(wired):
     await wired.watch(FakeUpdate(111), FakeContext(["loc=NYC"]))
-    update = FakeUpdate(111, callback_data="menu:list")
+    update = FakeUpdate(111, text=messages.BUTTON_LIST)
 
-    await wired.on_callback_query(update, FakeContext())
+    await wired.on_text_message(update, FakeContext())
 
-    assert update.callback_query.answered is True
-    assert "#1" in update.callback_query.edits[0]
-
-
-async def test_callback_menu_stock_edits_message_with_stock(wired):
-    update = FakeUpdate(111, callback_data="menu:stock")
-
-    await wired.on_callback_query(update, FakeContext())
-
-    assert "Intel Xeon E3-1230v2" in update.callback_query.edits[0]
+    assert "#1" in update.message.replies[0]
 
 
-async def test_callback_menu_status_edits_message_with_status(wired):
-    update = FakeUpdate(111, callback_data="menu:status")
+async def test_text_button_stock_replies_with_the_stock(wired):
+    update = FakeUpdate(111, text=messages.BUTTON_STOCK)
 
-    await wired.on_callback_query(update, FakeContext())
+    await wired.on_text_message(update, FakeContext())
 
-    assert "Estado del sistema" in update.callback_query.edits[0]
+    assert "Intel Xeon E3-1230v2" in update.message.replies[0]
+
+
+async def test_text_button_status_replies_with_the_status(wired):
+    update = FakeUpdate(111, text=messages.BUTTON_STATUS)
+
+    await wired.on_text_message(update, FakeContext())
+
+    assert "Estado del sistema" in update.message.replies[0]
+
+
+async def test_text_button_new_watch_starts_the_wizard(wired):
+    update = FakeUpdate(111, text=messages.BUTTON_NEW_WATCH)
+
+    await wired.on_text_message(update, FakeContext())
+
+    assert "sin filtros" in update.message.replies[0]
 
 
 async def test_callback_remove_deactivates_the_watch_and_refreshes_the_list(wired):
@@ -314,7 +325,7 @@ async def test_callback_remove_deactivates_the_watch_and_refreshes_the_list(wire
 
 
 async def test_callback_rejects_unauthorized_user(wired):
-    update = FakeUpdate(999, callback_data="menu:list")
+    update = FakeUpdate(999, callback_data="remove:1")
 
     await wired.on_callback_query(update, FakeContext())
 
@@ -349,16 +360,20 @@ async def test_approve_callback_rejects_non_admin(wired):
     assert update.callback_query.edits == [messages.APPROVE_ONLY_ADMIN]
 
 
+async def _start_wizard(handlers) -> None:
+    await handlers.on_text_message(FakeUpdate(111, text=messages.BUTTON_NEW_WATCH), FakeContext())
+
+
 async def test_wizard_new_shows_the_filter_menu(wired):
-    update = FakeUpdate(111, callback_data="wiz:new")
+    update = FakeUpdate(111, text=messages.BUTTON_NEW_WATCH)
 
-    await wired.on_callback_query(update, FakeContext())
+    await wired.on_text_message(update, FakeContext())
 
-    assert "sin filtros" in update.callback_query.edits[0]
+    assert "sin filtros" in update.message.replies[0]
 
 
 async def test_wizard_pick_ram_shows_presets(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     update = FakeUpdate(111, callback_data="wiz:pick:ram")
 
     await wired.on_callback_query(update, FakeContext())
@@ -368,7 +383,7 @@ async def test_wizard_pick_ram_shows_presets(wired):
 
 
 async def test_wizard_picking_a_ram_preset_updates_the_summary(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     update = FakeUpdate(111, callback_data="wiz:val:ram:32")
 
     await wired.on_callback_query(update, FakeContext())
@@ -377,7 +392,7 @@ async def test_wizard_picking_a_ram_preset_updates_the_summary(wired):
 
 
 async def test_wizard_back_returns_to_the_filter_menu(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:pick:ram"), FakeContext())
     update = FakeUpdate(111, callback_data="wiz:back")
 
@@ -387,7 +402,7 @@ async def test_wizard_back_returns_to_the_filter_menu(wired):
 
 
 async def test_wizard_cancel_clears_state_and_shows_main_menu(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     update = FakeUpdate(111, callback_data="wiz:cancel")
 
     await wired.on_callback_query(update, FakeContext())
@@ -404,7 +419,7 @@ async def test_wizard_callback_without_active_state_reports_expired(wired):
 
 
 async def test_wizard_cpu_pick_goes_straight_to_a_text_prompt(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     update = FakeUpdate(111, callback_data="wiz:pick:cpu")
 
     await wired.on_callback_query(update, FakeContext())
@@ -413,7 +428,7 @@ async def test_wizard_cpu_pick_goes_straight_to_a_text_prompt(wired):
 
 
 async def test_wizard_text_reply_fills_in_the_cpu_filter(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:pick:cpu"), FakeContext())
     update = FakeUpdate(111, text="E3-1230")
     context = FakeContext()
@@ -432,7 +447,7 @@ async def test_text_message_without_an_active_wizard_shows_a_hint(wired):
 
 
 async def test_wizard_remove_button_clears_a_filter(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:val:ram:32"), FakeContext())
     update = FakeUpdate(111, callback_data="wiz:rm:ram")
 
@@ -442,7 +457,7 @@ async def test_wizard_remove_button_clears_a_filter(wired):
 
 
 async def test_wizard_create_persists_the_watch_and_clears_state(wired):
-    await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:new"), FakeContext())
+    await _start_wizard(wired)
     await wired.on_callback_query(FakeUpdate(111, callback_data="wiz:val:ram:64"), FakeContext())
     update = FakeUpdate(111, callback_data="wiz:create")
 
